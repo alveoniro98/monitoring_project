@@ -1,0 +1,35 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: "3.12"
+  - script: |
+      python -m pip install -r requirements-dev.txt
+      ruff check app tests
+      pytest -q
+    displayName: Install, lint and test
+  - task: Docker@2
+    inputs:
+      command: build
+      Dockerfile: Dockerfile
+      repository: opspulse
+      tags: $(Build.SourceVersion)
+    displayName: Build container image
+  - script: |
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.63.0 \
+        image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed=false opspulse:$(Build.SourceVersion)
+    displayName: Scan image with Trivy
+  # Configure a protected service connection and environment before adding a deployment stage.

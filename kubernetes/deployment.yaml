@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opspulse
+  labels:
+    app.kubernetes.io/name: opspulse
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opspulse
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opspulse
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ghcr.io/OWNER/REPOSITORY:REPLACE_WITH_APPROVED_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: opspulse-config
+            - secretRef:
+                name: opspulse-secrets
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+              readOnly: false
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opspulse-config
+data:
+  LOG_LEVEL: INFO
+  OPSPULSE_DISK_PATH: /app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opspulse
+  labels:
+    app.kubernetes.io/name: opspulse
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: opspulse
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

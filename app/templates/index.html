@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="OpsPulse application operations dashboard">
+  <title>OpsPulse | Operations</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OpsPulse home"><span class="brand-mark">O</span> OpsPulse</a>
+    <div class="topbar-right"><span class="live-dot"></span><span id="refresh-status">Connecting</span><span class="topbar-divider"></span><span id="runtime-version">Python —</span></div>
+  </header>
+  <main class="dashboard">
+    <section class="intro">
+      <div><p class="eyebrow">OPERATIONS OVERVIEW</p><h1>System dashboard</h1><p class="intro-copy">Application process health and runtime measurements.</p></div>
+      <div class="updated"><span class="updated-label">LAST UPDATED</span><strong id="last-updated">—</strong></div>
+    </section>
+    <section class="status-banner" aria-live="polite">
+      <span class="health-icon">✓</span><div><strong>Application process</strong><p id="health-detail">Checking application health…</p></div><span class="status-pill" id="health-status">CHECKING</span>
+    </section>
+    <section class="section-heading"><div><p class="eyebrow">RUNTIME METRICS</p><h2>Process measurements</h2></div><span class="scope-note">Scope: this application process</span></section>
+    <section class="metric-grid">
+      <article class="metric-card"><div class="card-label"><span class="metric-symbol cpu">CPU</span><span>PROCESS CPU</span></div><strong class="metric-value" id="cpu-value">—</strong><span class="metric-unit">percent</span><div class="meter"><span id="cpu-bar"></span></div><small>Instantaneous process usage</small></article>
+      <article class="metric-card"><div class="card-label"><span class="metric-symbol memory">MEM</span><span>PROCESS MEMORY</span></div><strong class="metric-value" id="memory-value">—</strong><span class="metric-unit">RSS</span><small>Resident set size; not EC2 host memory</small></article>
+      <article class="metric-card"><div class="card-label"><span class="metric-symbol disk">FS</span><span>VISIBLE FILESYSTEM</span></div><strong class="metric-value" id="disk-value">—</strong><span class="metric-unit">percent used</span><div class="meter"><span id="disk-bar"></span></div><small id="disk-scope">Filesystem available to process</small></article>
+      <article class="metric-card"><div class="card-label"><span class="metric-symbol uptime">UP</span><span>PROCESS UPTIME</span></div><strong class="metric-value" id="uptime-value">—</strong><span class="metric-unit">since process start</span><div class="uptime-line"><span class="live-dot"></span>Running</div></article>
+    </section>
+    <section class="lower-grid">
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">INTEGRATIONS</p><h2>Monitoring connections</h2></div><span class="panel-icon">↗</span></div><div class="integration-list">
+        <div class="integration-row"><span class="integration-mark prometheus">P</span><div class="integration-copy"><strong>Prometheus</strong><small id="prometheus-detail">—</small></div><span class="integration-state" id="prometheus-state">—</span></div>
+        <div class="integration-row"><span class="integration-mark otel">CT</span><div class="integration-copy"><strong>Container runtime</strong><small id="container-detail">—</small></div><span class="integration-state" id="container-state">—</span></div>
+        <div class="integration-row"><span class="integration-mark cloudwatch">CW</span><div class="integration-copy"><strong>Amazon CloudWatch</strong><small id="cloudwatch-detail">—</small></div><span class="integration-state" id="cloudwatch-state">—</span></div>
+        <div class="integration-row"><span class="integration-mark otel">OT</span><div class="integration-copy"><strong>OpenTelemetry</strong><small id="opentelemetry-detail">—</small></div><span class="integration-state" id="opentelemetry-state">—</span></div>
+      </div></article>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">RELEASE</p><h2>Deployment information</h2></div><span class="panel-icon">⌁</span></div>
+        <div class="release-content"><span class="release-status" id="release-status">NOT CONFIGURED</span><p>Configured release identifier</p><strong id="release-value">Not configured</strong><small>This identifier is provided by deployment configuration; it is not independent proof of deployment success.</small></div>
+      </article>
+    </section>
+    <section class="footer-note"><span>ⓘ</span><p>Measurements are collected at runtime. Container health is not queried by the app, and no log/event feed is exposed. Use container logs for events; process metrics are not EC2 host metrics.</p><a href="/api/metrics">Metrics API <span>↗</span></a></section>
+    <footer>OpsPulse <span>·</span> Cloud &amp; DevOps Operations Platform <span id="api-link"><a href="/health">Health endpoint ↗</a></span></footer>
+  </main>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
+</body>
+</html>

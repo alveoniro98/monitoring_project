@@ -1,0 +1,4 @@
+-r requirements.txt
+opentelemetry-distro==0.56b0
+opentelemetry-exporter-otlp==1.35.0
+opentelemetry-instrumentation-flask==0.56b0

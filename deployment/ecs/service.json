@@ -1,0 +1,23 @@
+{
+  "cluster": "REPLACE_WITH_ECS_CLUSTER_ARN_OR_NAME",
+  "serviceName": "opspulse",
+  "taskDefinition": "opspulse",
+  "desiredCount": 1,
+  "launchType": "FARGATE",
+  "platformVersion": "LATEST",
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": ["SUBNET_ID"],
+      "securityGroups": ["SECURITY_GROUP_ID"],
+      "assignPublicIp": "DISABLED"
+    }
+  },
+  "deploymentConfiguration": {
+    "maximumPercent": 200,
+    "minimumHealthyPercent": 100,
+    "deploymentCircuitBreaker": {
+      "enable": true,
+      "rollback": true
+    }
+  }
+}
