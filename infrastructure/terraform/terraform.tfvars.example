@@ -1,0 +1,4 @@
+aws_region   = "ap-southeast-3"
+instance_type = "t3.small"
+subnet_id    = "subnet-REPLACE_WITH_VERIFIED_PUBLIC_SUBNET"
+project_name = "opspulse"

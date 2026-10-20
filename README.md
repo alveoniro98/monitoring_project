@@ -83,7 +83,7 @@ docker compose config
 docker build -t opspulse:local .
 ```
 
-Workflow GitHub menjalankan lint, pytest, build image, serta Trivy untuk kerentanan HIGH/CRITICAL pada OS dan library. Hasil validasi lokal dan batasan tooling dicatat pada laporan implementasi. Temuan image tidak diabaikan; perbarui dependency/base image atau mitigasi secara terdokumentasi sebelum mengubah threshold.
+Workflow GitHub menjalankan lint, pytest, build image, dan Trivy untuk kerentanan HIGH/CRITICAL pada OS dan library. Hanya image yang lolos validasi dan scan yang dipublikasikan dengan tag commit SHA ke GHCR. Temuan image tidak diabaikan; perbarui dependency/base image atau mitigasi secara terdokumentasi sebelum mengubah threshold.
 
 ## 6. Docker dan Compose
 
@@ -105,72 +105,60 @@ cp .env.example .env
 docker compose --profile monitoring up -d --build
 ```
 
-Grafana dan Prometheus secara default hanya bind ke loopback host (port 3000/9090); akses melalui SSH tunnel atau host lokal. Prometheus target dapat diperiksa di `http://127.0.0.1:9090/targets`. Konfigurasi scrape 15 detik dan dashboard Grafana hanya mengacu metrik yang disediakan aplikasi. Profil ini menambah container, storage, dan penggunaan RAM/CPU; jangan aktifkan pada instance kecil tanpa memeriksa kapasitas dan biaya.
+Grafana dan Prometheus secara default hanya bind ke loopback host (port 3000/9090); akses melalui tunnel aman atau host lokal. Prometheus target dapat diperiksa di `http://127.0.0.1:9090/targets`. Konfigurasi scrape 15 detik dan dashboard Grafana hanya mengacu metrik yang disediakan aplikasi. Profil ini menambah container, storage, dan penggunaan RAM/CPU; jangan aktifkan pada instance kecil tanpa memeriksa kapasitas dan biaya.
 
-## 7. GitHub Actions
+## 7. GitHub Actions dan deployment EC2
 
-1. Push repository ke GitHub dengan branch `main`.
-2. Pastikan Actions diaktifkan dan tinjau hasil job `validate`.
-3. Untuk deployment, siapkan Ubuntu EC2 terlebih dahulu (bagian berikut).
-4. Buat GitHub Environment bernama `production`; aktifkan required reviewers dan branch restriction `main`.
-5. Tambahkan secrets di environment (bukan di file):
-   - `EC2_HOST`: IP publik EC2 atau hostname yang telah diverifikasi.
-   - `EC2_USER`: akun deployment non-root yang dapat menjalankan Docker Compose dan menulis `/opt/opspulse`.
-   - `EC2_SSH_PRIVATE_KEY`: private key khusus deployment, akses minimum, dapat dirotasi.
-   - `EC2_KNOWN_HOSTS`: baris `known_hosts` yang host key-nya diperoleh dan diverifikasi lewat kanal independen.
-6. Jalankan workflow manual pada `main`, pilih `deploy_to_ec2=true`, lalu tunggu approval environment.
+CI pada pull request/push ke `main` menjalankan Terraform fmt/init/validate, Ruff, pytest, build container, dan Trivy. Hanya hasil scan yang lulus pada `main`/manual dispatch yang dipublikasikan ke `ghcr.io/alveoniro98/opspulse` menggunakan tag commit SHA. Job deployment tidak berjalan otomatis setelah push.
 
-Jangan menggunakan `ssh-keyscan` sebagai bukti kepercayaan. Ambil fingerprint host melalui kanal administrasi EC2/SSM atau sesi terverifikasi lain dan cocokkan sebelum menyimpan nilai `known_hosts`. Pipeline membangun image pada job CI; deployment mengirim bundle kode ke host dan membangun image di EC2. Tidak ada image yang dipublikasikan ke registry.
+Pada audit 20 Oktober 2026, workflow di `main` masih menggunakan SSH key dan tidak memiliki secret yang dibutuhkan. Perubahan pada branch ini menggantinya dengan OIDC dan Systems Manager; perubahan tersebut belum merge atau dideploy. GitHub Environment `production` kini dibatasi ke branch `main`, memerlukan reviewer `alveoniro98`, dan tidak dapat di-bypass administrator. AWS OIDC provider dan role SSM terbatas sudah dibuat; environment variables `AWS_ROLE_ARN` dan `AWS_REGION` telah diatur tanpa access key. `EC2_INSTANCE_ID`, `EC2_PUBLIC_IP`, dan package GHCR publik belum tersedia. Jangan memicu workflow SSH lama.
 
-## 8. Persiapan dan deployment EC2
+Sebelum deployment pertama:
 
-Persyaratan demo: Ubuntu Server 22.04/24.04, IPv4 publik, akses Docker Engine + Docker Compose plugin, dan kapasitas yang cukup untuk build image (misalnya minimal 2 vCPU/2 GiB untuk kenyamanan; ukuran dan biaya bergantung region dan workload). EC2 instance type/storage/IPv4 dapat menimbulkan biaya; periksa kalkulator AWS dan hapus resource yang memang sudah tidak dibutuhkan.
+1. Verifikasi OIDC provider `token.actions.githubusercontent.com` (audience `sts.amazonaws.com`) dan role `opspulse-github-actions-deploy`; jangan membuat duplikat. Trust dibatasi ke `repo:alveoniro98/monitoring_project:environment:production`.
+2. Role menggunakan izin SSM minimum untuk mengirim command hanya ke EC2 bertag `Project=opspulse`, serta membaca status invocation. Template JSON memakai `ACCOUNT_ID` sebagai contoh; jangan menambahkan izin `ec2:*`, `iam:*`, atau akses AWS luas.
+3. Environment `production`, reviewer, aturan branch `main`, dan variables `AWS_ROLE_ARN`/`AWS_REGION` sudah disiapkan. Setelah EC2 dibuat dan plan di-apply, isi variables `EC2_INSTANCE_ID` dan `EC2_PUBLIC_IP` dari output Terraform. Tidak diperlukan AWS access key atau GitHub secret.
+4. Atur package `ghcr.io/alveoniro98/opspulse` menjadi **public** setelah image pertama dipublikasikan agar EC2 dapat pull tanpa credential registry. Repository GitHub ini public, tetapi visibility package perlu diperiksa tersendiri.
+5. Pastikan instance berada di Systems Manager **Managed nodes** (agent online). Kemudian jalankan workflow `OpsPulse CI and approved EC2 deployment` pada `main`, pilih `deploy_to_ec2=true`, dan setujui Environment deployment.
 
-Security group:
+Workflow menggunakan OIDC untuk credential AWS sementara; tidak ada AWS access key, SSH private key, atau TCP 22 yang diperlukan. SSM menjalankan script deployment pada instance, menarik image GHCR yang telah lulus CI/security scan, mengaktifkan Docker Compose, memeriksa health lokal dan HTTP publik, serta berusaha rollback ke image/konfigurasi sebelumnya jika deployment gagal. `deployment/ec2/compose.yaml` adalah Compose khusus EC2 (HTTP 80 → Gunicorn 8000); profil Prometheus/Grafana tidak ikut dijalankan.
 
-- TCP 22 hanya dari IP administrator `/32` atau tutup dan gunakan SSM.
-- TCP 80 publik untuk demo tanpa domain.
-- Jangan buka TCP 8000, 3000, atau 9090 ke internet.
-- Host firewall UFW dan AWS security group adalah lapisan berbeda; pastikan keduanya konsisten dan tidak mengunci akses SSH.
-
-Pasang Docker Engine/Compose mengikuti dokumentasi resmi Ubuntu/Docker. Buat akun deployment non-root, tambahkan ke grup `docker` (akses grup Docker setara akses root), siapkan folder deployment, lalu verifikasi izin host key dari sesi administrator:
+Setelah deployment sukses, buka `http://EC2_PUBLIC_IP/`. IP bersifat ephemeral dan dapat berubah setelah instance stop/start. Logs/status dapat diperiksa lewat SSM Run Command:
 
 ```bash
-sudo install -d -o "$USER" -g docker /opt/opspulse
-docker --version
-docker compose version
-```
-
-`$USER` di atas harus akun deployment yang dipakai GitHub Actions. Untuk deployment manual tanpa Actions, salin source yang telah direview ke host lalu:
-
-```bash
-cd /opt/opspulse
-OPSPULSE_BIND_ADDRESS=0.0.0.0 \
-OPSPULSE_HOST_PORT=80 \
-OPSPULSE_RELEASE=<commit-yang-disetujui> \
-docker compose up -d --build
-docker compose ps
+docker compose -f /opt/opspulse/compose.yaml ps
+docker compose -f /opt/opspulse/compose.yaml logs --tail=100 app
 curl --fail http://127.0.0.1/health
+df -h
 ```
 
-Akses `http://EC2_PUBLIC_IP/`. IP tidak ditulis dalam kode aplikasi. Logs: `docker compose logs --tail=100 app`; status: `docker compose ps`; cek port: `sudo ss -lntp`; cek filesystem: `df -h`; cek proses container: `docker stats`. Jangan menyalakan monitoring ports publik. Troubleshooting detail di `scripts/ops.sh` dan `docs/INTERVIEW_GUIDE.md`.
+Rollback otomatis dicoba bila health check script gagal dan image sebelumnya masih ada. Untuk rollback manual, gunakan `deployment/ec2/deploy.sh` dengan SHA/image lama yang dipastikan pernah dipublikasikan, atau arahkan deployment workflow kembali ke commit rilis yang disetujui. Jangan hapus image lama sebelum rilis baru diverifikasi.
 
-Rollback manual: pertahankan tag image rilis yang diketahui baik sebelum mengganti release. Jika tag lama tersedia:
+## 8. Terraform dan batas resource
+
+`infrastructure/terraform` membuat resource baru saja: satu security group, satu IAM role/instance profile untuk Systems Manager, dan satu EC2. Konfigurasi **tidak membuat atau mengubah VPC/subnet yang ada**. Pilih subnet publik yang telah diverifikasi pada VPC milik Anda; route table harus memiliki route Internet Gateway. Terraform memilih AMI Canonical Ubuntu Server 24.04 LTS terbaru untuk `ap-southeast-3`. EC2 menggunakan `t3.small`, public IPv4, encrypted gp3 20 GiB, IMDSv2 wajib, port ingress hanya TCP 80, dan Docker/SSM dipasang oleh user-data.
+
+Verifikasi identitas dan region sebelum mulai (`aws sts get-caller-identity`). Audit read-only telah memastikan default VPC di Jakarta, subnet publik dengan route aktif ke Internet Gateway, dan tidak ada resource ber-tag `Project=opspulse`. Instance EC2 yang ada menggunakan nama/tag workload lain, tidak memiliki instance profile, dan tidak memenuhi kriteria reuse; tidak ada instance atau security group lama yang diubah. OIDC provider dan role GitHub Actions dibuat setelah pemeriksaan tersebut; keduanya tidak menimbulkan biaya compute.
+
+Periksa VPC/subnet dan default route sebelum memilih:
 
 ```bash
-docker tag opspulse:<tag-lama> opspulse:local
-cd /opt/opspulse
-docker compose up -d --no-build
-curl --fail http://127.0.0.1/health
+aws ec2 describe-vpcs --region ap-southeast-3 --filters Name=isDefault,Values=true
+aws ec2 describe-subnets --region ap-southeast-3 --filters Name=vpc-id,Values=<VPC_ID>
+aws ec2 describe-route-tables --region ap-southeast-3 --filters Name=vpc-id,Values=<VPC_ID>
 ```
 
-Workflow melakukan pemeriksaan HTTP setelah deployment dan menandai kegagalan bila tidak sehat. Sebelum aktivasi pada host nyata, tinjau mekanisme rollback, izin folder, dan image build terlebih dahulu. Untuk deployment pertama tidak ada release lama untuk dipulihkan.
+Isi lokal `infrastructure/terraform/terraform.tfvars` dengan `subnet_id` yang dipilih dan `project_name = "opspulse"` (contoh non-secret: `terraform.tfvars.example`). Jalankan dari folder Terraform:
 
-## 9. Terraform (opsional dan menimbulkan biaya)
+```bash
+terraform init
+terraform fmt -check
+terraform validate
+terraform plan -out=opspulse.tfplan
+terraform show opspulse.tfplan
+```
 
-`infrastructure/terraform` membuat instance EC2 baru serta security group. Ini bukan konfigurasi reuse instance. Isi `terraform.tfvars` lokal (jangan commit) dengan AMI Ubuntu, subnet, key pair yang sudah ada, region, dan SSH CIDR milik Anda. Lalu `terraform init`, `terraform fmt -check`, `terraform validate`, `terraform plan`; tinjau seluruh plan. `terraform apply` dan `terraform destroy` tidak dijalankan oleh proyek dan memerlukan persetujuan pemilik akun. State remote/locking, backup state, serta proteksi output harus ditentukan sebelum pemakaian bersama. Jangan commit state atau plan.
-
-Bila sudah memiliki EC2, jangan apply konfigurasi ini: gunakan petunjuk deploy manual/Actions dan security group yang telah ada.
+Plan yang direview menghasilkan **5 resource baru, 0 perubahan, 0 penghapusan**: EC2, security group, IAM role/instance profile, dan attachment policy SSM. AMI Ubuntu 24.04 dan subnet dipilih/dibaca dari AWS; plan tidak mengadopsi atau memodifikasi instance lama. Plan belum di-apply. File state/plan bersifat lokal/sensitif dan tidak boleh commit. Untuk CI yang menjalankan plan/apply lintas-run, siapkan backend remote terenkripsi dan locking terlebih dahulu; jangan menaruh state pada Git atau mengandalkan runner ephemeral. Jangan menjalankan `terraform destroy` otomatis.
 
 ## 10. CloudWatch, OpenTelemetry
 
@@ -204,15 +192,17 @@ Argo CD: `argocd/opspulse-application.yaml` menunjuk repo dan path `kubernetes`.
 
 - API tidak mengembalikan environment, secret, atau traceback; `release` dibatasi karakter dan panjang.
 - Container non-root, root filesystem read-only, capability drop, dan tidak menerima secret build arg.
-- GitHub deploy memakai host key yang disimpan sebagai secret tepercaya, bukan trust-on-first-use.
-- SSH dibatasi IP, HTTP publik hanya untuk dashboard, port aplikasi internal tidak dipublikasikan.
-- Terraform memakai IMDSv2, encrypted gp3 volume, dan security group minimum.
+- GitHub deploy memakai OIDC short-lived role dan Systems Manager; inbound SSH TCP 22 ditutup.
+- Security group hanya membuka HTTP 80; port aplikasi internal tidak dipublikasikan.
+- Terraform memakai IMDSv2, encrypted gp3 volume, IAM instance role SSM, dan security group minimum.
 - Dashboard hanya menampilkan metrik proses dan tidak mengklaim metrik EC2 host.
 - Tinjau dependency/base image dan hasil Trivy; laporan keamanan melalui `SECURITY.md`.
 
 ## 14. Biaya dan keterbatasan
 
-EC2, public IPv4, EBS, data transfer, CloudWatch, ECR, ECS, EKS, NAT Gateway, dan load balancer dapat berbiaya. Prometheus/Grafana/Collector memerlukan kapasitas CPU/RAM/disk tambahan dan tidak punya retention/backup produksi. Tidak ada domain, DNS zone, TLS certificate, load balancer, secret manager, atau backend observability yang dibuat oleh repository. Cloud/API testing, Terraform plan, cluster validation, dan deployment harus dilakukan setelah konfigurasi akun tersedia.
+Resource target ini berbiaya. AWS Price List API untuk Jakarta pada 20 Oktober 2026 melaporkan On-Demand Linux `t3.small` **$0.0264/jam**, gp3 **$0.096/GB-bulan**, dan public IPv4 **$0.005/jam**. Untuk asumsi 730 jam dan 20 GiB, komponen tersebut sekitar **$24.84/bulan** ($19.27 compute + $1.92 disk + $3.65 IPv4), sebelum data transfer keluar, pajak, dan kemungkinan CPU surplus T3 Unlimited. Ini estimasi berbasis harga saat pemeriksaan, bukan tagihan atau jaminan harga. Referensi resmi: [EC2 On-Demand](https://aws.amazon.com/ec2/pricing/on-demand/), [EBS](https://aws.amazon.com/ebs/pricing/), [VPC/public IPv4](https://aws.amazon.com/vpc/pricing/), [AWS Pricing Calculator](https://calculator.aws/). Stop instance menghentikan biaya compute, tetapi volume EBS dan resource/alamat yang tetap dialokasikan dapat terus menimbulkan biaya. Tidak ada jaminan free tier.
+
+Tidak menambahkan NAT Gateway, load balancer, EKS/ECS, RDS, CloudWatch log group, atau stack monitoring pada EC2 kecil. IAM/instance profile dan security group mendukung target deployment; GitHub package harus public agar tidak perlu credential registry di host. `t3.small` hanya untuk demo dasar; jangan aktifkan Prometheus/Grafana atau beban produksi di instance ini. Tidak ada domain, DNS zone, TLS certificate, atau backup produksi.
 
 ## 15. Hasil validasi lokal
 
@@ -223,22 +213,24 @@ Validasi dilakukan pada 20 Oktober 2026. Build/test lokal memakai Docker dengan 
 | Ruff (`ruff check app tests`) | Lulus |
 | pytest | Lulus, 9 tes |
 | Docker build | Lulus, image multi-stage Alpine |
-| Docker runtime | Lulus; health check container healthy, `/health`, `/api/metrics`, dan `/metrics` merespons |
+| Docker runtime | Lulus; health check container healthy; `/health`, `/api/metrics`, `/api/info`, dan `/metrics` merespons |
 | Docker Compose config | Lulus untuk core dan profil monitoring |
-| Trivy image scan | Lulus, tidak ada kerentanan HIGH/CRITICAL pada image final |
+| Trivy image scan | Workflow GitHub pada `main` lulus pada commit dasar; scan untuk branch perubahan ini menunggu PR CI |
 | Prometheus config | `promtool check config` lulus; scrape target runtime belum dijalankan |
-| GitHub Actions actionlint | Lulus sintaks dan shellcheck workflow |
+| GitHub Actions actionlint | Lulus pada workflow branch ini |
 | Bash `bash -n` | Lulus untuk semua script |
-| Terraform | `fmt -check`, `init -backend=false`, dan `validate` lulus; `plan/apply` tidak dijalankan |
+| Terraform | `fmt -check`, `init -backend=false`, `validate`, dan plan lulus; plan 5 create/0 change/0 destroy; apply belum dijalankan |
 | Kubernetes manifest | kubeconform lulus, 3 resource valid; `kubectl` dry-run tidak dapat dipakai karena context lokal mengarah ke endpoint Jenkins yang meminta autentikasi |
 | JSON templates | ECS task/service dan Grafana dashboard berhasil diparse |
 | YAML files | 9 file berhasil diparse |
+| AWS identity / inventory | Terverifikasi read-only; EC2 lama tidak digunakan, default VPC/subnet publik diverifikasi; OIDC role dibuat dengan izin SSM terbatas |
+| EC2 provision / GitHub deployment / public URL | Belum dijalankan; branch perubahan belum merge, instance/package belum tersedia, workflow `main` saat ini masih jalur SSH |
 | Prometheus/Grafana runtime, CloudWatch, OTLP, AWS deploy, GitHub Actions remote | Tidak dijalankan; memerlukan service/configuration atau akun eksternal |
-| Pull request | Tidak dibuat: folder workspace ini tidak memiliki `.git` atau remote GitHub yang dapat ditulis |
+| AWS billing estimate | Estimasi Price List API Jakarta: sekitar $24.84/bulan untuk 730 jam EC2 + 20 GiB gp3 + satu public IPv4, tidak termasuk transfer, pajak, dan CPU surplus |
 
 Scan awal pada image Debian `slim` menemukan 44 HIGH dan 2 CRITICAL yang belum diperbaiki di paket OS. Base image diganti dengan multi-stage Alpine dan scan final dijalankan ulang tanpa mengabaikan temuan; hasil akhir 0 HIGH/CRITICAL. Scan perlu diulang saat CI berjalan karena database dan image base terus berubah.
 
-Validasi sintaks bukan bukti aplikasi telah dideploy ke cloud atau integrasi telah tersambung. Keberadaan konfigurasi tidak berarti layanan telah dideploy.
+Validasi lokal/config bukan bukti aplikasi sudah dideploy ke AWS atau Actions telah berjalan. Keberadaan konfigurasi tidak berarti layanan telah tersambung.
 
 ## 16. CV-to-project mapping dan wawancara
 

@@ -16,7 +16,7 @@ Browser memuat halaman Flask dan mengambil JSON dari `/health`, `/api/metrics`, 
 2. GitHub Actions memasang dependency, menjalankan Ruff dan pytest.
 3. Workflow membangun image dan Trivy memeriksa kerentanan HIGH/CRITICAL.
 4. Deployment bukan bagian otomatis dari push: workflow dipicu manual pada `main`, perlu input deploy dan approval environment.
-5. Bundle source disalin via SSH dengan host key yang telah diverifikasi. Host membangun dan menjalankan container, lalu health endpoint diperiksa.
+5. Setelah semua prasyarat AWS/GitHub manual siap, workflow memakai OIDC untuk credential AWS sementara dan Systems Manager untuk meminta instance menarik image GHCR yang telah discan, menjalankan Compose, lalu memeriksa health endpoint.
 6. Bila gagal, job harus dianggap gagal; investigasi logs/health dan rollback ke image release sebelumnya yang telah disimpan.
 
 ## Mengapa Docker dan Terraform?
@@ -44,7 +44,7 @@ CI memeriksa kode dan artefak; pipeline deployment dapat mengirim rilis. GitOps 
 
 ## IAM dan networking
 
-Security group mengendalikan trafik masuk/keluar pada interface AWS. Firewall host (contoh UFW) adalah lapisan tersendiri. TCP 22 dibatasi ke IP admin/SSM; TCP 80 dapat dibuka untuk demo publik; port internal Gunicorn tidak dibuka. DNS mengarahkan nama ke alamat, bukan firewall atau load balancer. NGINX/reverse proxy melakukan routing/proxy pada layer aplikasi; load balancer cloud adalah service terpisah dengan health check dan biaya. Repository ini tidak menyediakan domain/NGINX/load balancer nyata.
+Security group mengendalikan trafik masuk/keluar pada interface AWS. Firewall host (contoh UFW) adalah lapisan tersendiri. Pada contoh ini hanya TCP 80 dibuka untuk demo publik; TCP 22 ditutup dan operasi memakai Systems Manager; port internal Gunicorn tidak dibuka. DNS mengarahkan nama ke alamat, bukan firewall atau load balancer. NGINX/reverse proxy melakukan routing/proxy pada layer aplikasi; load balancer cloud adalah service terpisah dengan health check dan biaya. Repository ini tidak menyediakan domain/NGINX/load balancer nyata.
 
 Gunakan instance role untuk CloudWatch; jangan simpan access keys. ECS execution role mengizinkan agent menarik image dan mengirim logs, sedangkan task role memberi izin pada proses aplikasi. Role sebaiknya minimum.
 

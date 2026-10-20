@@ -45,5 +45,5 @@ for attempt in $(seq 1 12); do
   sleep 5
 done
 
-echo "Deployment health verification failed after retries" >&2
+echo "Deployment health verification failed after $attempt attempts" >&2
 exit 1

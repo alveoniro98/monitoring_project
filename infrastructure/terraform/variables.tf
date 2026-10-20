@@ -1,16 +1,11 @@
 variable "aws_region" {
-  description = "AWS region in which to create the optional EC2 instance."
+  description = "AWS region in which to create the OpsPulse EC2 instance."
   type        = string
   default     = "ap-southeast-3"
 }
 
-variable "ami_id" {
-  description = "Ubuntu Server AMI ID for the selected AWS region."
-  type        = string
-}
-
 variable "instance_type" {
-  description = "EC2 instance type; verify its capacity and cost for your region."
+  description = "EC2 instance type; confirm current regional pricing before applying."
   type        = string
   default     = "t3.small"
 }
@@ -18,18 +13,11 @@ variable "instance_type" {
 variable "subnet_id" {
   description = "Subnet ID in which the instance will be created."
   type        = string
-}
 
-variable "key_name" {
-  description = "Name of an existing EC2 key pair. The private key stays outside Terraform."
-  type        = string
-}
-
-variable "ssh_ingress_cidr" {
-  description = "Your public IPv4 CIDR for SSH, for example 203.0.113.10/32. Null disables SSH ingress."
-  type        = string
-  default     = null
-  nullable    = true
+  validation {
+    condition     = can(regex("^subnet-[0-9a-f]+$", var.subnet_id))
+    error_message = "subnet_id must identify an existing AWS subnet."
+  }
 }
 
 variable "project_name" {
