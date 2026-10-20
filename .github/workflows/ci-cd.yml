@@ -104,21 +104,6 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect GitHub OIDC claims for trust-policy diagnostics
-        run: |
-          token=$(curl --fail --silent --show-error \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" |
-            python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')
-          printf '%s' "$token" | python3 -c '
-          import base64, json, sys
-          payload = sys.stdin.read().split(".")[1]
-          payload += "=" * (-len(payload) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-          for key in ("iss", "aud", "sub", "repository", "ref", "environment"):
-              if key in claims:
-                  print(f"{key}={claims[key]}")
-          '
       - name: Configure short-lived AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -137,7 +122,7 @@ jobs:
           [[ "$RELEASE" =~ ^[a-f0-9]{40}$ ]] || { echo "Release is not a full commit SHA"; exit 1; }
 
           remote_commands=$(cat <<EOF
-          set -Eeuo pipefail
+          set -eu
           install -d -m 0755 /opt/opspulse
           curl --fail --silent --show-error --location --retry 3 "https://raw.githubusercontent.com/alveoniro98/monitoring_project/$RELEASE/deployment/ec2/compose.yaml" --output /opt/opspulse/compose.candidate.yaml
           curl --fail --silent --show-error --location --retry 3 "https://raw.githubusercontent.com/alveoniro98/monitoring_project/$RELEASE/deployment/ec2/deploy.sh" --output /opt/opspulse/deploy.candidate.sh
