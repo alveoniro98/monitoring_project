@@ -122,7 +122,7 @@ jobs:
           [[ "$RELEASE" =~ ^[a-f0-9]{40}$ ]] || { echo "Release is not a full commit SHA"; exit 1; }
 
           remote_commands=$(cat <<EOF
-          set -Eeuo pipefail
+          set -eu
           install -d -m 0755 /opt/opspulse
           curl --fail --silent --show-error --location --retry 3 "https://raw.githubusercontent.com/alveoniro98/monitoring_project/$RELEASE/deployment/ec2/compose.yaml" --output /opt/opspulse/compose.candidate.yaml
           curl --fail --silent --show-error --location --retry 3 "https://raw.githubusercontent.com/alveoniro98/monitoring_project/$RELEASE/deployment/ec2/deploy.sh" --output /opt/opspulse/deploy.candidate.sh
